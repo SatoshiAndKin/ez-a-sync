@@ -582,3 +582,111 @@ def test_unwrap_a_sync_method_async_def_async_default() -> None:
     assert isinstance(test_fn, ASyncBoundMethodAsyncDefault)
     unwrapped: Any = _unwrap(test_fn)
     assert unwrapped is test_fn
+
+
+@pytest.mark.asyncio_cooperative
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize("concurrency", [None, 2])
+@pytest.mark.parametrize("manual", [False, True])
+async def test_map_binds_constant_prefix(wrapped, concurrency, manual):
+    calls = []
+
+    async def quote(token, market, block, *, amount):
+        calls.append((token, market, block, amount))
+        await asyncio.sleep(0)
+        return block * amount
+
+    function = a_sync("async")(quote) if wrapped else quote
+    mapping = TaskMapping(
+        function,
+        *(() if manual else ([10, 20],)),
+        token="token",
+        market="pool",
+        amount=3,
+        concurrency=concurrency,
+    )
+    if manual:
+        mapping[10]
+        mapping[20]
+    assert await mapping == {10: 30, 20: 60}
+    assert sorted(calls) == [("token", "pool", 10, 3), ("token", "pool", 20, 3)]
+    mapping.clear(cancel=True)
+
+
+@pytest.mark.asyncio_cooperative
+async def test_map_binds_prefix_of_bound_async_method():
+    class Quotes(ASyncGenericBase):
+        def __init__(self):
+            self.sync = False
+            super().__init__()
+
+        async def quote(self, token, block, *, amount):
+            return token, block, amount
+
+    quotes = Quotes()
+    mapping = TaskMapping(quotes.quote, [10, 20], token="token", amount=3)
+    assert await mapping == {10: ("token", 10, 3), 20: ("token", 20, 3)}
+    mapping.clear(cancel=True)
+
+
+@pytest.mark.asyncio_cooperative
+async def test_map_does_not_retry_type_errors_from_callable_body():
+    calls = []
+    error = TypeError("quote() got multiple values for argument 'token'")
+
+    async def quote(token, block):
+        calls.append((token, block))
+        raise error
+
+    mapping = TaskMapping(a_sync("async")(quote), [10], token="token")
+    with pytest.raises(TypeError) as raised:
+        await mapping
+    assert raised.value is error
+    assert calls == [("token", 10)]
+    mapping.clear(cancel=True)
+
+
+@pytest.mark.asyncio_cooperative
+async def test_map_bound_prefix_preserves_other_keywords_and_cancellation():
+    started = asyncio.Event()
+    release = asyncio.Event()
+    cancelled = []
+
+    async def quote(token, block, **kwargs):
+        assert kwargs == {"__a_sync_recursion": "caller value"}
+        started.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            cancelled.append(block)
+            raise
+        return token, block
+
+    mapping = TaskMapping(quote, [10, 20], token="token", __a_sync_recursion="caller value")
+    await asyncio.wait_for(started.wait(), 2)
+    mapping[10].cancel()
+    release.set()
+    results = await mapping.gather(return_exceptions=True, sync=False)
+    assert isinstance(results[10], asyncio.CancelledError)
+    assert results[20] == ("token", 20)
+    assert cancelled == [10]
+    mapping.clear(cancel=True)
+
+
+def test_unwrap_does_not_retain_callable_or_its_captured_state():
+    from weakref import ref
+
+    class State:
+        pass
+
+    state = State()
+    state_ref = ref(state)
+
+    async def operation(key, captured=state):
+        return key, captured
+
+    operation_ref = ref(operation)
+    assert _unwrap(operation) is operation
+    del operation, state
+    assert operation_ref() is None
+    assert state_ref() is None

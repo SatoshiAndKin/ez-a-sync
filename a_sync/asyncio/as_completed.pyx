@@ -12,6 +12,7 @@ from a_sync._typing import K, T, V
 
 # cdef asyncio
 cdef object _as_completed = asyncio.as_completed
+cdef object _gather = asyncio.gather
 del asyncio
 
 # cdef tqdm
@@ -197,7 +198,7 @@ cdef object as_completed_mapping(
     )
 
 
-async def _exc_wrap(awaitable: Awaitable[T]) -> T | Exception:
+async def _exc_wrap(awaitable: Awaitable[T]) -> T | BaseException:
     """Wraps an awaitable to catch exceptions and return them instead of raising.
 
     Args:
@@ -206,10 +207,9 @@ async def _exc_wrap(awaitable: Awaitable[T]) -> T | Exception:
     Returns:
         The result of the awaitable or the exception if one is raised.
     """
-    try:
-        return await awaitable
-    except Exception as e:
-        return e
+    # gather distinguishes a cancelled child (a result) from cancellation of
+    # this wrapper (which must propagate to its caller and the child).
+    return (await _gather(awaitable, return_exceptions=True))[0]
 
 
 async def __yield_as_completed(
@@ -242,14 +242,14 @@ async def __yield_as_completed(
 @overload
 async def __mapping_wrap(
     k: K, v: Awaitable[V], return_exceptions: Literal[True] = True
-) -> V | Exception: ...
+) -> tuple[K, V | BaseException]: ...
 @overload
 async def __mapping_wrap(
     k: K, v: Awaitable[V], return_exceptions: Literal[False] = False
-) -> V: ...
+) -> tuple[K, V]: ...
 async def __mapping_wrap(
     k: K, v: Awaitable[V], return_exceptions: bool = False
-) -> V | Exception:
+) -> tuple[K, V | BaseException]:
     """Wraps a key-value pair of awaitable to catch exceptions and return them with the key.
 
     Args:
@@ -260,9 +260,6 @@ async def __mapping_wrap(
     Returns:
         A tuple of the key and the result of the awaitable or the exception if one is raised.
     """
-    try:
-        return k, await v
-    except Exception as e:
-        if return_exceptions:
-            return k, e
-        raise
+    if return_exceptions:
+        return k, await _exc_wrap(v)
+    return k, await v
