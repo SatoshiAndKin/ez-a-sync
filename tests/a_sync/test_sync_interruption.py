@@ -1,5 +1,4 @@
 import asyncio
-import signal
 
 import pytest
 
@@ -10,23 +9,50 @@ class CallerInterrupted(BaseException):
     pass
 
 
+class InterruptingLoop(asyncio.SelectorEventLoop):
+    """Inject a caller error outside the request task on every supported OS."""
+
+    def __init__(self):
+        super().__init__()
+        self.interruption = None
+
+    def _run_once(self):
+        super()._run_once()
+        if self.interruption is not None:
+            error, self.interruption = self.interruption, None
+            raise error
+
+
+@pytest.fixture
+def interrupting_loop():
+    previous = asyncio.get_event_loop()
+    loop = InterruptingLoop()
+    asyncio.set_event_loop(loop)
+    try:
+        yield loop
+    finally:
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            task.cancel()
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()
+        asyncio.set_event_loop(previous)
+
+
 @pytest.mark.parametrize("cleanup_fails", [False, True])
 @pytest.mark.parametrize("interruption_type", [CallerInterrupted, RuntimeError])
 def test_sync_interruption_releases_request_and_preserves_original_error(
-    cleanup_fails, interruption_type
+    cleanup_fails, interruption_type, interrupting_loop
 ):
-    loop = asyncio.get_event_loop()
+    loop = interrupting_loop
     existing = asyncio.all_tasks(loop)
     events = []
     error = interruption_type("This event loop is already running")
 
-    def interrupt(signum, frame):
-        raise error
-
     @a_sync.a_sync(default="sync")
     async def request():
         events.append("entered")
-        signal.setitimer(signal.ITIMER_REAL, 0.1)
+        loop.interruption = error
         try:
             await asyncio.Event().wait()
         finally:
@@ -39,26 +65,16 @@ def test_sync_interruption_releases_request_and_preserves_original_error(
     async def next_request():
         return 17
 
-    previous = signal.signal(signal.SIGALRM, interrupt)
-    try:
-        with pytest.raises(interruption_type) as raised:
-            request()
-        assert raised.value is error
-        assert events == ["entered", "released"]
-        assert asyncio.all_tasks(loop) == existing
-        assert next_request() == 17
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
-        # Keep a failing baseline test from leaving work in the shared loop.
-        pending = asyncio.all_tasks(loop) - existing
-        for task in pending:
-            task.cancel()
-        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+    with pytest.raises(interruption_type) as raised:
+        request()
+    assert raised.value is error
+    assert events == ["entered", "released"]
+    assert asyncio.all_tasks(loop) == existing
+    assert next_request() == 17
 
 
-def test_sync_interruption_preserves_independent_shared_request():
-    loop = asyncio.get_event_loop()
+def test_sync_interruption_preserves_independent_shared_request(interrupting_loop):
+    loop = interrupting_loop
     existing = asyncio.all_tasks(loop)
     ready = asyncio.Event()
     events = []
@@ -70,31 +86,19 @@ def test_sync_interruption_preserves_independent_shared_request():
 
     shared = loop.create_task(shared_request())
 
-    def interrupt(signum, frame):
-        raise error
-
     @a_sync.a_sync(default="sync")
     async def waiter():
-        signal.setitimer(signal.ITIMER_REAL, 0.1)
+        loop.interruption = error
         try:
             return await asyncio.shield(shared)
         finally:
             events.append("waiter released")
 
-    previous = signal.signal(signal.SIGALRM, interrupt)
-    try:
-        with pytest.raises(CallerInterrupted) as raised:
-            waiter()
-        assert raised.value is error
-        assert events == ["waiter released"]
-        assert not shared.done()
-        assert asyncio.all_tasks(loop) == existing | {shared}
-        ready.set()
-        assert loop.run_until_complete(shared) == 73
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
-        pending = asyncio.all_tasks(loop) - existing
-        for task in pending:
-            task.cancel()
-        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+    with pytest.raises(CallerInterrupted) as raised:
+        waiter()
+    assert raised.value is error
+    assert events == ["waiter released"]
+    assert not shared.done()
+    assert asyncio.all_tasks(loop) == existing | {shared}
+    ready.set()
+    assert loop.run_until_complete(shared) == 73
