@@ -200,14 +200,20 @@ def test_a_sync_decorator_default_resolution(tmp_path: Path) -> None:
     async_revealed = _revealed_sequence(async_output)
     assert sync_revealed[0] == '"a_sync.a_sync.function.ASyncDecoratorSyncDefault"'
     assert sync_revealed[1] == '"a_sync.a_sync.function.ASyncDecoratorAsyncDefault"'
-    assert sync_revealed[3] == '"a_sync.a_sync.function.ASyncFunctionAsyncDefault[[value: builtins.int], builtins.int]"'
+    assert (
+        sync_revealed[3]
+        == '"a_sync.a_sync.function.ASyncFunctionAsyncDefault[[value: builtins.int], builtins.int]"'
+    )
     assert sync_revealed[2] in {
         '"a_sync.a_sync.function.ASyncDecorator"',
         '"a_sync.a_sync.function.ASyncDecoratorSyncDefault"',
     }
     assert async_revealed[0] == '"a_sync.a_sync.function.ASyncDecoratorSyncDefault"'
     assert async_revealed[1] == '"a_sync.a_sync.function.ASyncDecoratorAsyncDefault"'
-    assert async_revealed[3] == '"a_sync.a_sync.function.ASyncFunctionAsyncDefault[[value: builtins.int], builtins.int]"'
+    assert (
+        async_revealed[3]
+        == '"a_sync.a_sync.function.ASyncFunctionAsyncDefault[[value: builtins.int], builtins.int]"'
+    )
     assert async_revealed[2] in {
         '"a_sync.a_sync.function.ASyncDecorator"',
         '"a_sync.a_sync.function.ASyncDecoratorAsyncDefault"',
@@ -268,7 +274,30 @@ def test_metaclass_wraps_sync_methods_and_descriptors(tmp_path: Path) -> None:
         "ASyncPropertyDescriptor[",
         "ASyncCachedPropertyDescriptor[",
     )
-    assert _reveal_types(output)['"typing.Awaitable[int?]"'] == 2
+    assert _reveal_types(output)['"typing.Awaitable[builtins.int]"'] == 2
+    assert "error:" not in output
+
+
+def test_metaclass_preserves_method_and_cached_property_body_checks(tmp_path: Path) -> None:
+    output = _run_mypy(
+        tmp_path,
+        """
+        from a_sync.a_sync._meta import ASyncMeta
+        from a_sync.a_sync.property import a_sync_cached_property
+
+        class Thing(metaclass=ASyncMeta):
+            def compute(self, value: int) -> int:
+                return "incorrect method result"
+
+            @a_sync_cached_property
+            async def cached(self) -> int:
+                return "incorrect property result"
+
+        reveal_type(Thing().cached)
+        """,
+    )
+    assert output.count("[return-value]") == 2, output
+    assert _reveal_types(output) == Counter(['"typing.Awaitable[builtins.int]"'])
 
 
 def test_async_generator_descriptor_typing(tmp_path: Path) -> None:

@@ -108,3 +108,42 @@ async def test_as_completed_with_mapping_and_return_exceptions_aiter():
         results[key] = result
     assert isinstance(results["task1"], ValueError), "Result should be ValueError"
     assert results["task2"] == 2, "Results should match the input mapping"
+
+
+@pytest.mark.asyncio_cooperative
+@pytest.mark.parametrize("mapping", [False, True])
+@pytest.mark.parametrize("aiter", [False, True])
+async def test_return_exceptions_preserves_cancelled_child_and_other_results(mapping, aiter):
+    loop = asyncio.get_running_loop()
+    cancelled = loop.create_future()
+    cancelled.cancel()
+    completed = loop.create_future()
+    completed.set_result(42)
+    inputs = {"cancelled": cancelled, "completed": completed} if mapping else [cancelled, completed]
+    iterator = a_sync.as_completed(inputs, return_exceptions=True, aiter=aiter)
+    results = (
+        [result async for result in iterator] if aiter else [await result for result in iterator]
+    )
+    if mapping:
+        results = dict(results)
+        assert isinstance(results["cancelled"], asyncio.CancelledError)
+        assert results["completed"] == 42
+    else:
+        assert 42 in results
+        assert sum(isinstance(result, asyncio.CancelledError) for result in results) == 1
+
+
+@pytest.mark.asyncio_cooperative
+@pytest.mark.parametrize("mapping", [False, True])
+async def test_exception_wrapper_propagates_its_own_cancellation(mapping):
+    from a_sync.asyncio.as_completed import _exc_wrap, __mapping_wrap
+
+    child = asyncio.get_running_loop().create_future()
+    wrapped = __mapping_wrap("key", child, return_exceptions=True) if mapping else _exc_wrap(child)
+    task = asyncio.create_task(wrapped)
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert task.cancelled()
+    assert child.cancelled()
