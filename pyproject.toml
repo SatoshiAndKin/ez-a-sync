@@ -20,7 +20,7 @@ non_interactive = true
 enable_incomplete_feature = ["Unpack"]
 
 [tool.validation]
-cached_property_tests = ["tests/a_sync/test_cached_property_ownership.py", "tests/a_sync/test_property.py", "tests/test_smart.py", "tests/test_smart_ownership.py", "tests/mypy/test_mypy_plugin.py"]
+cached_property_tests = ["tests/a_sync/test_cached_property_ownership.py", "tests/a_sync/test_property.py", "tests/a_sync/test_sync_interruption.py", "tests/test_smart.py", "tests/test_smart_ownership.py", "tests/mypy/test_mypy_plugin.py"]
 
 [tool.validation.cached_property_pytest]
 addopts = "-p no:pytest_ethereum -p no:pytest-brownie --junitxml=/reports/pytest.xml"
