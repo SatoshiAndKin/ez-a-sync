@@ -7,16 +7,27 @@ import async_property as ap
 from typing_extensions import Concatenate, Self, Unpack
 
 from a_sync import exceptions as exceptions
-from a_sync._typing import (AnyFn, AnyGetterFunction, AnyIterable, AsyncGetterFunction, DefaultMode,
-                            I, ModifierKwargs, _ModifierKwargsNoDefault, P, T)
+from a_sync._typing import (
+    AnyFn,
+    AnyGetterFunction,
+    AnyIterable,
+    AsyncGetterFunction,
+    DefaultMode,
+    I,
+    ModifierKwargs,
+    _ModifierKwargsNoDefault,
+    P,
+    T,
+)
 from a_sync.a_sync import config as config
 from a_sync.a_sync._descriptor import ASyncDescriptor as ASyncDescriptor
 from a_sync.a_sync.function import ASyncFunction as ASyncFunction
 from a_sync.a_sync.function import ASyncFunctionAsyncDefault as ASyncFunctionAsyncDefault
 from a_sync.a_sync.function import ASyncFunctionSyncDefault as ASyncFunctionSyncDefault
 from a_sync.a_sync.method import ASyncBoundMethodAsyncDefault as ASyncBoundMethodAsyncDefault
-from a_sync.a_sync.method import \
-    ASyncMethodDescriptorAsyncDefault as ASyncMethodDescriptorAsyncDefault
+from a_sync.a_sync.method import (
+    ASyncMethodDescriptorAsyncDefault as ASyncMethodDescriptorAsyncDefault,
+)
 from a_sync.task import TaskMapping as TaskMapping
 
 logger: Logger
@@ -167,15 +178,21 @@ def a_sync_property(
 ) -> ASyncPropertyDecoratorAsyncDefault[I, T]: ...
 @overload
 def a_sync_property(
-    func: AnyGetterFunction[I, T], default: Literal["sync"], **modifiers: Unpack[_ModifierKwargsNoDefault]
+    func: AnyGetterFunction[I, T],
+    default: Literal["sync"],
+    **modifiers: Unpack[_ModifierKwargsNoDefault]
 ) -> ASyncPropertyDescriptorSyncDefault[I, T]: ...
 @overload
 def a_sync_property(
-    func: AnyGetterFunction[I, T], default: Literal["async"], **modifiers: Unpack[_ModifierKwargsNoDefault]
+    func: AnyGetterFunction[I, T],
+    default: Literal["async"],
+    **modifiers: Unpack[_ModifierKwargsNoDefault]
 ) -> ASyncPropertyDescriptorAsyncDefault[I, T]: ...
 @overload
 def a_sync_property(
-    func: AnyGetterFunction[I, T], default: DefaultMode = ..., **modifiers: Unpack[_ModifierKwargsNoDefault]
+    func: AnyGetterFunction[I, T],
+    default: DefaultMode = ...,
+    **modifiers: Unpack[_ModifierKwargsNoDefault]
 ) -> ASyncPropertyDescriptor[I, T]: ...
 
 class ASyncCachedPropertyDescriptor(
@@ -206,6 +223,12 @@ class ASyncCachedPropertyDescriptor(
             **modifiers: Additional modifier arguments.
         """
 
+    def __set__(self, instance: I, value: Any) -> None:
+        """Store a caller-provided value, as the runtime cached descriptor permits."""
+
+    def __delete__(self, instance: I) -> None: ...
+    def get_cache_value(self, instance: I) -> T: ...
+    def set_cache_value(self, instance: I, value: T) -> None: ...
     def get_lock(self, instance: I) -> Task[T]:
         """Retrieves the lock for the property.
 
@@ -275,6 +298,10 @@ def a_sync_cached_property(
 ) -> ASyncCachedPropertyDecorator[I, T]: ...
 @overload
 def a_sync_cached_property(
+    func: AsyncGetterFunction[I, T],
+) -> ASyncCachedPropertyDescriptor[I, T]: ...
+@overload
+def a_sync_cached_property(
     func: AnyGetterFunction[I, T], **modifiers: Unpack[ModifierKwargs]
 ) -> ASyncCachedPropertyDescriptor[I, T]: ...
 @overload
@@ -299,15 +326,21 @@ def a_sync_cached_property(
 ) -> ASyncCachedPropertyDecoratorAsyncDefault[I, T]: ...
 @overload
 def a_sync_cached_property(
-    func: AnyGetterFunction[I, T], default: Literal["sync"], **modifiers: Unpack[_ModifierKwargsNoDefault]
+    func: AnyGetterFunction[I, T],
+    default: Literal["sync"],
+    **modifiers: Unpack[_ModifierKwargsNoDefault]
 ) -> ASyncCachedPropertyDescriptorSyncDefault[I, T]: ...
 @overload
 def a_sync_cached_property(
-    func: AnyGetterFunction[I, T], default: Literal["async"], **modifiers: Unpack[_ModifierKwargsNoDefault]
+    func: AnyGetterFunction[I, T],
+    default: Literal["async"],
+    **modifiers: Unpack[_ModifierKwargsNoDefault]
 ) -> ASyncCachedPropertyDescriptorAsyncDefault[I, T]: ...
 @overload
 def a_sync_cached_property(
-    func: AnyGetterFunction[I, T], default: DefaultMode = ..., **modifiers: Unpack[_ModifierKwargsNoDefault]
+    func: AnyGetterFunction[I, T],
+    default: DefaultMode = ...,
+    **modifiers: Unpack[_ModifierKwargsNoDefault]
 ) -> ASyncCachedPropertyDescriptor[I, T]: ...
 @final
 class HiddenMethod(ASyncBoundMethodAsyncDefault[I, tuple[()], T]):

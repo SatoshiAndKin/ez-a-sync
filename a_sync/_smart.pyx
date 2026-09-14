@@ -6,6 +6,7 @@ to protect tasks from cancellation.
 """
 
 import asyncio
+from functools import partial
 import typing
 import weakref
 from collections.abc import Awaitable, Generator
@@ -334,13 +335,18 @@ class SmartFuture(Future[T]):
         self._asyncio_future_blocking = True
         if task := current_task(self._loop):
             (<WeakSet>self._waiters).add(task)
-            task.add_done_callback(
-                self._waiter_done_cleanup_callback  # type: ignore [union-attr]
-            )
+            waiter_cleanup = self._waiter_done_cleanup_callback
+            task.add_done_callback(waiter_cleanup)
 
-        if _DEBUG_LOGS_ENABLED:
-            log_await(self)
-        yield self  # This tells Task to wait for completion.
+        try:
+            if _DEBUG_LOGS_ENABLED:
+                log_await(self)
+            yield self  # This tells Task to wait for completion.
+        finally:
+            if task is not None:
+                task.remove_done_callback(waiter_cleanup)
+                if task in self._waiters:
+                    (<WeakSet>self._waiters).remove(task)
         if _is_not_done(self):
             raise RuntimeError("await wasn't used with future")
 
@@ -484,13 +490,17 @@ class SmartTask(Task[T]):
         self._asyncio_future_blocking = True
         if task := current_task(self._loop):
             (<set>self._waiters).add(task)
-            task.add_done_callback(
-                self._waiter_done_cleanup_callback  # type: ignore [union-attr]
-            )
+            waiter_cleanup = self._waiter_done_cleanup_callback
+            task.add_done_callback(waiter_cleanup)
 
-        if _DEBUG_LOGS_ENABLED:
-            log_await(self)
-        yield self  # This tells Task to wait for completion.
+        try:
+            if _DEBUG_LOGS_ENABLED:
+                log_await(self)
+            yield self  # This tells Task to wait for completion.
+        finally:
+            if task is not None:
+                task.remove_done_callback(waiter_cleanup)
+                (<set>self._waiters).discard(task)
         if _is_not_done(self):
             raise RuntimeError("await wasn't used with future")
             
@@ -639,28 +649,30 @@ cpdef object shield(arg: Awaitable[T]):
 
 
 cdef tuple _get_done_callbacks(inner: Task, outer: Future):
+    inner_done = partial(_shield_inner_done_callback, outer)
+    return inner_done, partial(_shield_outer_done_callback, inner, inner_done)
 
-    def _inner_done_callback(inner):
-        if _is_cancelled(outer):
-            if not _is_cancelled(inner):
-                # Mark inner's result as retrieved.
-                inner._Future__log_traceback = False
-            return
 
-        if _is_cancelled(inner):
-            outer.cancel(CancelMessage(inner))
+def _shield_inner_done_callback(outer, inner):
+    if _is_cancelled(outer):
+        if not _is_cancelled(inner):
+            # Mark inner's result as retrieved.
+            inner._Future__log_traceback = False
+        return
+
+    if _is_cancelled(inner):
+        outer.cancel(CancelMessage(inner))
+    else:
+        exc = _get_exception(inner)
+        if exc is not None:
+            outer.set_exception(exc)
         else:
-            exc = _get_exception(inner)
-            if exc is not None:
-                outer.set_exception(exc)
-            else:
-                outer.set_result(inner._result)
+            outer.set_result(inner._result)
 
-    def _outer_done_callback(outer):
-        if _is_not_done(inner):
-            inner.remove_done_callback(_inner_done_callback)
-    
-    return _inner_done_callback, _outer_done_callback
+
+def _shield_outer_done_callback(inner, inner_done, outer):
+    if _is_not_done(inner):
+        inner.remove_done_callback(inner_done)
 
 
 cdef class CancelMessage:
