@@ -536,7 +536,7 @@ class ASyncCachedPropertyDescriptor(
 
             self._load_value = loader
 
-        return lambda: loader(instance)
+        return partial(loader, instance)
 
 
 class ASyncCachedPropertyDescriptorSyncDefault(ASyncCachedPropertyDescriptor[I, T]):

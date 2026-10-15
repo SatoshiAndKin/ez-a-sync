@@ -9,22 +9,34 @@ The main components include:
 """
 
 from asyncio import FIRST_COMPLETED, CancelledError, Future, Task, wait
-from collections.abc import (AsyncIterable, AsyncIterator, Awaitable, Callable, Coroutine,
-                             Generator, Iterable, Iterator)
-from functools import wraps
-from inspect import getfullargspec, isawaitable
+from collections.abc import (
+    AsyncIterable,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Coroutine,
+    Generator,
+    Iterable,
+    Iterator,
+)
+from functools import partial, wraps
+from inspect import Parameter, isawaitable, signature
 from itertools import filterfalse
 from logging import getLogger
-from typing import Any, Concatenate, DefaultDict, Generic, Literal, Union, overload
-from weakref import WeakKeyDictionary, proxy
+from types import MethodType
+from typing import Any, Concatenate, DefaultDict, Generic, Literal, overload
+from weakref import proxy
 
 from a_sync import exceptions
-from a_sync._typing import AnyFn, AnyIterableOrAwaitableIterable, I, K, P, T, V
+from a_sync._typing import AnyIterableOrAwaitableIterable, K, P, T, V
 from a_sync.a_sync._kwargs import _get_flag_name
 from a_sync.a_sync.base import ASyncGenericBase
 from a_sync.a_sync.function import ASyncFunction
-from a_sync.a_sync.method import (ASyncBoundMethod, ASyncMethodDescriptor,
-                                  ASyncMethodDescriptorSyncDefault)
+from a_sync.a_sync.method import (
+    ASyncBoundMethod,
+    ASyncMethodDescriptor,
+    ASyncMethodDescriptorSyncDefault,
+)
 from a_sync.a_sync.property import _ASyncPropertyDescriptorBase
 from a_sync.asyncio import as_completed, create_task, gather
 from a_sync.asyncio.gather import Excluder
@@ -41,9 +53,6 @@ logger = getLogger(__name__)
 
 
 MappingFn = Callable[Concatenate[K, P], Awaitable[V]]
-
-
-_args: WeakKeyDictionary[Any, list[str]] = WeakKeyDictionary()
 
 
 class TaskMapping(DefaultDict[K, Task[V]], AsyncIterable[tuple[K, V]]):
@@ -95,6 +104,8 @@ class TaskMapping(DefaultDict[K, Task[V]], AsyncIterable[tuple[K, V]]):
     _next: Event = None
     "An asyncio Event that indicates the next result is ready"
 
+    _wrapped_func: Callable[..., Awaitable[V]]
+
     _wrapped_func_kwargs: dict[str, Any] = {}
     "Additional keyword arguments passed to `_wrapped_func`."
 
@@ -142,16 +153,31 @@ class TaskMapping(DefaultDict[K, Task[V]], AsyncIterable[tuple[K, V]]):
         if iterables:
             self.__iterables__ = iterables
 
-        wrapped_func = _unwrap(wrapped_func)
-        self._wrapped_func = wrapped_func
-        "The function used to create tasks for each key."
-
-        if isinstance(wrapped_func, ASyncMethodDescriptor) and not _get_flag_name(
-            wrapped_func_kwargs
-        ):
+        task_fn: Callable[..., Awaitable[V]] = _unwrap(wrapped_func)
+        if isinstance(task_fn, ASyncMethodDescriptor) and not _get_flag_name(wrapped_func_kwargs):
             wrapped_func_kwargs["sync"] = False
         if wrapped_func_kwargs:
+            # Bind the constant prefix before inserting each mapped key. A bound
+            # ASync method exposes the original unbound function via __wrapped__.
+            signature_func = (
+                MethodType(task_fn.__wrapped__, task_fn.__self__)
+                if isinstance(task_fn, ASyncBoundMethod)
+                else task_fn
+            )
+            prefix = []
+            for parameter in signature(signature_func).parameters.values():
+                if (
+                    parameter.kind != Parameter.POSITIONAL_OR_KEYWORD
+                    or parameter.name not in wrapped_func_kwargs
+                ):
+                    break
+                prefix.append(wrapped_func_kwargs.pop(parameter.name))
+            if prefix:
+                task_fn = partial(task_fn, *prefix)
             self._wrapped_func_kwargs = wrapped_func_kwargs
+
+        self._wrapped_func = task_fn
+        "The function used to create tasks for each key."
 
         if name:
             self._name = name
@@ -163,52 +189,13 @@ class TaskMapping(DefaultDict[K, Task[V]], AsyncIterable[tuple[K, V]]):
             set_next = self._next.set
             clear_next = self._next.clear
 
-            @wraps(wrapped_func)
-            async def _wrapped_set_next(
-                *args: P.args, __a_sync_recursion: int = 0, **kwargs: P.kwargs
-            ) -> V:
+            @wraps(task_fn)
+            async def _wrapped_set_next(key: K, **kwargs: Any) -> V:
                 try:
-                    return await wrapped_func(*args, **kwargs)
+                    return await task_fn(key, **kwargs)
                 except exceptions.SyncModeInAsyncContextError as e:
                     e.args = *e.args, f"wrapped:{self.__wrapped__}"
                     raise
-                except TypeError as e:
-                    if (
-                        args is None
-                        or __a_sync_recursion > 2
-                        or not (
-                            str(e).startswith(wrapped_func.__name__)
-                            and "got multiple values for argument" in str(e)
-                        )
-                    ):
-                        raise
-
-                    # NOTE: args ordering is clashing with provided kwargs. We can handle this in a hacky way.
-                    # TODO: perform this check earlier and pre-prepare the args/kwargs ordering
-                    try:
-                        argspec = _args[self.__wrapped__]
-                    except KeyError:
-                        argspec = _args[self.__wrapped__] = getfullargspec(self.__wrapped__).args
-
-                    new_args = list(args)
-                    new_kwargs = dict(kwargs)
-                    try:
-                        for i, arg in enumerate(argspec):
-                            if arg in kwargs:
-                                new_args.insert(i, new_kwargs.pop(arg))
-                            else:
-                                break
-                        return await _wrapped_set_next(
-                            *new_args,
-                            **new_kwargs,
-                            __a_sync_recursion=__a_sync_recursion + 1,
-                        )
-                    except TypeError as e2:
-                        raise (
-                            e.with_traceback(e.__traceback__)
-                            if str(e2) == "unsupported callable"
-                            else e2.with_traceback(e2.__traceback__)
-                        )
                 finally:
                     set_next()
                     clear_next()
@@ -749,16 +736,10 @@ async def _yield_keys(iterable: AnyIterableOrAwaitableIterable[K]) -> AsyncItera
         raise TypeError(iterable)
 
 
-__unwrapped: WeakKeyDictionary[Any, Any] = WeakKeyDictionary()
-
-
 def _unwrap(
-    wrapped_func: Union[
-        AnyFn[P, T], "ASyncMethodDescriptor[P, T]", _ASyncPropertyDescriptorBase[I, T]
-    ],
-) -> Callable[P, Awaitable[T]]:
-    if unwrapped := __unwrapped.get(wrapped_func):
-        return unwrapped
+    wrapped_func: Callable[..., Any] | _ASyncPropertyDescriptorBase[Any, Any],
+) -> Callable[..., Any]:
+    unwrapped: Callable[..., Any]
     if isinstance(wrapped_func, (ASyncBoundMethod, ASyncMethodDescriptor)):
         unwrapped = wrapped_func
     elif isinstance(wrapped_func, _ASyncPropertyDescriptorBase):
@@ -771,7 +752,6 @@ def _unwrap(
         )
     else:
         unwrapped = wrapped_func
-    __unwrapped[wrapped_func] = unwrapped
     return unwrapped
 
 

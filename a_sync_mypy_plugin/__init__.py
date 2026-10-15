@@ -281,8 +281,29 @@ def _class_instance_type(ctx: ClassDefContext) -> Optional[Instance]:
 
 
 def _set_attr_type(ctx: ClassDefContext, name: str, typ: Instance) -> None:
-    add_attribute_to_class(ctx.api, ctx.cls, name, typ, overwrite_existing=True)
+    existing = ctx.cls.info.names.get(name)
+    # Keep the original function in the symbol table so mypy analyzes its body
+    # and signature. On later passes, replace only our generated descriptor.
+    add_attribute_to_class(
+        ctx.api,
+        ctx.cls,
+        name,
+        typ,
+        overwrite_existing=existing is not None and existing.plugin_generated,
+    )
     ctx.api.add_plugin_dependency(f"{ctx.cls.info.fullname}.{name}")
+
+
+def _analyzed_callable_from_node(
+    ctx: ClassDefContext, node: FuncDef | Decorator | OverloadedFuncDef
+) -> Optional[CallableType]:
+    callable_type = _callable_from_node(node)
+    if callable_type is None:
+        return None
+    # Class hooks run before the separate method-analysis pass. Resolve the
+    # signature before storing its argument and result types in a descriptor.
+    analyzed = ctx.api.anal_type(callable_type)
+    return analyzed if isinstance(analyzed, CallableType) else None
 
 
 def _add_hidden_method(
@@ -404,7 +425,7 @@ def _wrap_async_class(ctx: ClassDefContext) -> None:
                 prop_info = _property_info_from_decorators(stmt.decorators)
             if prop_info:
                 kind, default = prop_info
-                callable_type = _callable_from_node(stmt)
+                callable_type = _analyzed_callable_from_node(ctx, stmt)
                 if callable_type is None:
                     if not ctx.api.final_iteration:
                         needs_defer = True
@@ -421,7 +442,7 @@ def _wrap_async_class(ctx: ClassDefContext) -> None:
             if isinstance(stmt, Decorator) and _has_builtin_property(stmt.decorators):
                 continue
 
-            callable_type = _callable_from_node(stmt)
+            callable_type = _analyzed_callable_from_node(ctx, stmt)
             if callable_type is None:
                 if not ctx.api.final_iteration:
                     needs_defer = True
@@ -570,13 +591,11 @@ def _a_sync_function_hook(ctx: FunctionContext) -> Type:
     if coro_arg_type is None:
         if default == "sync":
             return _safe_named_generic_type(
-                ctx,
-                "a_sync.a_sync.function.ASyncDecoratorSyncDefault", []
+                ctx, "a_sync.a_sync.function.ASyncDecoratorSyncDefault", []
             )
         if default == "async":
             return _safe_named_generic_type(
-                ctx,
-                "a_sync.a_sync.function.ASyncDecoratorAsyncDefault", []
+                ctx, "a_sync.a_sync.function.ASyncDecoratorAsyncDefault", []
             )
         return ctx.default_return_type
 
@@ -588,21 +607,17 @@ def _a_sync_function_hook(ctx: FunctionContext) -> Type:
 
     if default == "sync":
         return _safe_named_generic_type(
-            ctx,
-            "a_sync.a_sync.function.ASyncFunctionSyncDefault", [params, value_type]
+            ctx, "a_sync.a_sync.function.ASyncFunctionSyncDefault", [params, value_type]
         )
     return _safe_named_generic_type(
-        ctx,
-        "a_sync.a_sync.function.ASyncFunctionAsyncDefault", [params, value_type]
+        ctx, "a_sync.a_sync.function.ASyncFunctionAsyncDefault", [params, value_type]
     )
 
 
 def _flag_conflict_hook(ctx: MethodContext) -> Type:
     names = _extract_named_arg_names(ctx)
     if "sync" in names and "asynchronous" in names:
-        ctx.api.fail(
-            "Too many flags: pass at most one of 'sync' or 'asynchronous'.", ctx.context
-        )
+        ctx.api.fail("Too many flags: pass at most one of 'sync' or 'asynchronous'.", ctx.context)
     return ctx.default_return_type
 
 

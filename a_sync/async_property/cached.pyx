@@ -24,6 +24,7 @@ del collections
 
 # cdef functools
 cdef object wraps = functools.wraps
+cdef object partial = functools.partial
 del functools
 
 
@@ -200,7 +201,7 @@ class AsyncCachedPropertyDescriptor:
 
             self._load_value = loader
 
-        return lambda: loader(instance)
+        return partial(loader, instance)
 
 
 cdef object __AsyncCachedPropertyDescriptor = AsyncCachedPropertyDescriptor

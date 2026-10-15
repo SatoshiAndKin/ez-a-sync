@@ -600,6 +600,9 @@ def _copy_future_state(cf_fut: concurrent.futures.Future, fut: asyncio.Future):
     # check this again in case it was cancelled since the last check
     if _fut_is_cancelled(fut):
         return
+    if cf_fut.cancelled():
+        fut.cancel()
+        return
     exception = _get_cf_fut_exception(cf_fut)
     if exception is None:
         _set_fut_result(fut, _get_cf_fut_result(cf_fut))

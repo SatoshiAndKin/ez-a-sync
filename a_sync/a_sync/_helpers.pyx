@@ -23,6 +23,9 @@ cdef object new_event_loop = asyncio.new_event_loop
 cdef object set_event_loop = asyncio.set_event_loop
 cdef object _chain_future = aiofutures._chain_future
 cdef object _get_event_loop = asyncio.get_event_loop
+cdef object _ensure_future = asyncio.ensure_future
+cdef object _is_future = asyncio.isfuture
+cdef object _gather = asyncio.gather
 del asyncio, aiofutures
 
 
@@ -69,11 +72,25 @@ cdef object _await(object awaitable):
     See Also:
         - :func:`asyncio.run`: For running the main entry point of an asyncio program.
     """
+    cdef object loop = get_event_loop()
+    cdef bint owned = not _is_future(awaitable)
+    cdef object future
+    # Match run_until_complete's running-loop check before creating a task.
+    if loop.is_running():
+        raise SyncModeInAsyncContextError from None
+    future = _ensure_future(awaitable, loop=loop)
     try:
-        return get_event_loop().run_until_complete(awaitable)
-    except RuntimeError as e:
-        if str(e) == "This event loop is already running":
-            raise SyncModeInAsyncContextError from None
+        return loop.run_until_complete(future)
+    except BaseException:
+        # A signal can interrupt the caller outside the request task. Finish
+        # this request's cancellation before returning control to its caller.
+        if owned and not future.done():
+            future.cancel()
+            try:
+                loop.run_until_complete(_gather(future, return_exceptions=True))
+            except BaseException:
+                # Cleanup must not replace the original caller interruption.
+                pass
         raise
 
 
