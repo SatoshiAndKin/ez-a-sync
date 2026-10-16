@@ -19,7 +19,6 @@ import atexit
 import concurrent.futures
 import multiprocessing.context
 import queue
-import signal
 import threading
 import weakref
 from asyncio import sleep
@@ -32,15 +31,15 @@ from a_sync._typing import P, T
 from a_sync.primitives._debug import _DebugDaemonMixin
 
 # === Executor Shutdown Logic ===
-# All executors (module-level and user-created) are registered for shutdown on interpreter exit and signals.
-# Signal handlers are chainable: after our cleanup, the previous handler is called (unless SIG_DFL or SIG_IGN).
-# This ensures compatibility with other libraries and deduplicates shutdown logic.
+# All executors are registered for cleanup when the interpreter exits.
+# The application owns process signals and must drain requests before closing
+# their executors. Importing this library must not replace its signal handlers.
 
 _EXECUTORS: "weakref.WeakSet[AsyncExecutor]" = weakref.WeakSet()
 
 
 def register_executor(executor) -> None:
-    """Register an executor for shutdown on exit/signals."""
+    """Register an executor for shutdown on interpreter exit."""
     _EXECUTORS.add(executor)
 
 
@@ -57,21 +56,8 @@ def _shutdown_all_executors(*args) -> None:
 
 
 def _register_executor_shutdown() -> None:
-    """Register atexit and chainable signal handlers for executor shutdown."""
+    """Register interpreter cleanup without taking ownership of process signals."""
     atexit.register(_shutdown_all_executors)
-
-    def make_chainable_signal_handler(signalnum):
-        prev_handler = signal.getsignal(signalnum)
-
-        def handler(signum, frame):
-            _shutdown_all_executors()
-            if callable(prev_handler) and prev_handler not in (signal.SIG_DFL, signal.SIG_IGN):
-                prev_handler(signum, frame)
-
-        signal.signal(signalnum, handler)
-
-    make_chainable_signal_handler(signal.SIGINT)
-    make_chainable_signal_handler(signal.SIGTERM)
 
 
 _register_executor_shutdown()

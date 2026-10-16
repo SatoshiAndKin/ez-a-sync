@@ -269,58 +269,34 @@ def test_executor_registration_and_shutdown(monkeypatch):
     assert dummy2.shutdown_called
 
 
-def test_signal_and_atexit_registration(monkeypatch):
-    """
-    Test that signal handlers and atexit are registered and chainable.
-    """
-    called = {"atexit": False, "sigint": False, "sigterm": False}
-
-    def fake_atexit(func):
-        called["atexit"] = True
-        return func
-
-    def fake_signal(sig, handler):
-        if sig == signal.SIGINT:
-            called["sigint"] = True
-        elif sig == signal.SIGTERM:
-            called["sigterm"] = True
-        return handler
-
-    monkeypatch.setattr(atexit, "register", fake_atexit)
-    monkeypatch.setattr(signal, "signal", fake_signal)
-    # Re-register handlers with monkeypatched functions
-    from a_sync.executor import _register_executor_shutdown as reg
-
-    reg()
-    assert called["atexit"]
-    assert called["sigint"]
-    assert called["sigterm"]
-
-
-def test_sigint_chains_to_default_handler(monkeypatch):
-    """
-    Test that SIGINT keeps normal Python KeyboardInterrupt behavior.
-    """
+def test_atexit_registration_preserves_application_signal_handlers(monkeypatch):
+    """Import-time cleanup must not take ownership of application shutdown."""
     from a_sync import executor as executor_module
 
-    installed_handlers = {}
+    callbacks = []
+    monkeypatch.setattr(atexit, "register", callbacks.append)
 
-    def fake_signal(sig, handler):
-        installed_handlers[sig] = handler
-        return handler
+    def unexpected_signal_change(*args):
+        raise AssertionError("Executor cleanup replaced an application signal handler")
 
-    monkeypatch.setattr(signal, "signal", fake_signal)
-    monkeypatch.setattr(signal, "getsignal", lambda sig: signal.default_int_handler if sig == signal.SIGINT else signal.SIG_IGN)
+    monkeypatch.setattr(signal, "signal", unexpected_signal_change)
+    before = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    executor_module._register_executor_shutdown()
+    assert callbacks == [executor_module._shutdown_all_executors]
+    assert {sig: signal.getsignal(sig) for sig in before} == before
 
+
+def test_atexit_cleanup_still_shuts_down_registered_executors(monkeypatch):
+    from a_sync import executor as executor_module
+
+    callbacks = []
+    monkeypatch.setattr(atexit, "register", callbacks.append)
     dummy = DummyExecutor()
     _EXECUTORS.clear()
     _EXECUTORS.add(dummy)
-
     executor_module._register_executor_shutdown()
-    sigint_handler = installed_handlers[signal.SIGINT]
-
-    with pytest.raises(KeyboardInterrupt):
-        sigint_handler(signal.SIGINT, None)
+    assert not dummy.shutdown_called
+    callbacks[0]()
     assert dummy.shutdown_called
 
 
