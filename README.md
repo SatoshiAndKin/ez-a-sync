@@ -5,24 +5,24 @@
 - [Introduction](#introduction)
 - [Installation](#installation)
 - [Usage](#usage)
-    - [Decorators](#decorators)
-        - [@a_sync'async'](#a_syncasync)
-        - [@a_sync'sync'](#a_syncsync)
-    - [Classes](#classes)
-    - [Modifiers](#modifiers)
-        - [async modifiers](#async-modifiers)
-        - [sync modifiers](#sync-modifiers)
-        - [Default Modifiers](#default-modifiers)
-    - [Other Helpful Classes](#other-helpful-modules)
-        - [ASyncIterable](#asynciterable)
-        - [ASyncIterator](#asynciterator)
-        - [ASyncFilter](#asyncfilter)
-        - [ASyncSorter](#asyncsorter)
+  - [Decorators](#decorators)
+    - [@a_sync'async'](#a_syncasync)
+    - [@a_sync'sync'](#a_syncsync)
+  - [Classes](#classes)
+  - [Modifiers](#modifiers)
+    - [async modifiers](#async-modifiers)
+    - [sync modifiers](#sync-modifiers)
+    - [Default Modifiers](#default-modifiers)
+  - [Other Helpful Classes](#other-helpful-modules)
+    - [ASyncIterable](#asynciterable)
+    - [ASyncIterator](#asynciterator)
+    - [ASyncFilter](#asyncfilter)
+    - [ASyncSorter](#asyncsorter)
 - [Other Helpful Modules](#other-helpful-modules)
-    - [future](#future)
-        - [ASyncFuture](#asyncfuture)
-        - [future decorator](#future-decorator)
-    - [asyncio](#asyncio)
+  - [future](#future)
+    - [ASyncFuture](#asyncfuture)
+    - [future decorator](#future-decorator)
+  - [asyncio](#asyncio)
 
 <!-- /TOC -->
 ## Introduction
@@ -207,7 +207,9 @@ Instead of setting modifiers one by one in functions, you can set a default valu
 - `SEMAPHORE`
 
 ### Other Helpful Classes
+
 #### ASyncIterable
+
 The [ASyncIterable](#https://bobthebuidler.github.io/ez-a-sync/source/a_sync.html#a_sync.ASyncIterable) class allows objects to be iterated over using either a standard `for` loop or an `async for` loop. This is particularly useful in scenarios where the mode of iteration needs to be flexible or is determined at runtime.
 
 ```python
@@ -300,6 +302,7 @@ for item in sorted_iterable:
 See the [documentation](#https://bobthebuidler.github.io/ez-a-sync/source/a_sync.html#a_sync.ASyncSorter) for more information.
 
 ## Other Helpful Modules
+
 The stuff here is unrelated to the main purpose of ez-a-sync, but cool and useful nonetheless
 
 ### asyncio
@@ -317,13 +320,16 @@ The `ez-a-sync` library extends the functionality of Python's `asyncio` module w
 These utilities enhance the standard `asyncio` module, providing more flexibility and control over asynchronous operations. For detailed documentation and examples, please refer to the [documentation](#https://bobthebuidler.github.io/ez-a-sync/source/a_sync.html#a_sync.asyncio)
 
 ### future
-The future module is something totally different. 
+
+The future module is something totally different.
  TODO: short explainer of module value prop and use case
 
 #### ASyncFuture
+
 [documentation](#https://bobthebuidler.github.io/ez-a-sync/source/a_sync.html#a_sync.future.ASyncFuture)
  TODO: short explainers on ASyncFuture class
 
 #### future decorator
+
 [documentation](#https://bobthebuidler.github.io/ez-a-sync/source/a_sync.html#a_sync.future.future)
  TODO: short explainers on future fn

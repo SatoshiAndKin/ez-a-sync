@@ -310,7 +310,11 @@ def test_sigint_chains_to_default_handler(monkeypatch):
         return handler
 
     monkeypatch.setattr(signal, "signal", fake_signal)
-    monkeypatch.setattr(signal, "getsignal", lambda sig: signal.default_int_handler if sig == signal.SIGINT else signal.SIG_IGN)
+    monkeypatch.setattr(
+        signal,
+        "getsignal",
+        lambda sig: signal.default_int_handler if sig == signal.SIGINT else signal.SIG_IGN,
+    )
 
     dummy = DummyExecutor()
     _EXECUTORS.clear()

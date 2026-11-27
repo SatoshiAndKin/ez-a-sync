@@ -17,4 +17,4 @@ All agents must follow these rules:
 11) Centralize pytest settings (flags, markers, ignore patterns, and targets) in pyproject.toml, pytest.ini, setup.cfg, or tox.ini; workflows/hooks should call pytest without inline args.
 12) If the branch you're assigned to work on is from a remote (ie origin/master or upstream/awesome-feature) you must ensure you fetch and pull from the remote before you begin your work.
 
-Reference: https://www.conventionalcommits.org/en/v1.0.0/
+Reference: <https://www.conventionalcommits.org/en/v1.0.0/>

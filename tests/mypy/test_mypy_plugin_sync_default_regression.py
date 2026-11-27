@@ -50,5 +50,5 @@ def test_a_sync_callable_sync_default_preserves_signature(tmp_path: Path) -> Non
         """,
     )
     assert _revealed_sequence(output) == [
-        '"a_sync.a_sync.function.ASyncFunctionSyncDefault[[value: builtins.int], builtins.int]"',
+        '"a_sync.a_sync.function.ASyncFunctionSyncDefault[[value: int], int]"',
     ]

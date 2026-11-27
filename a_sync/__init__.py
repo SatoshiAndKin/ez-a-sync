@@ -145,4 +145,3 @@ def _patch_async_property() -> None:
 
 
 _patch_async_property()
-
