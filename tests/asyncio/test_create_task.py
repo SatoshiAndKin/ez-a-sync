@@ -1,4 +1,4 @@
-from asyncio import get_event_loop, sleep
+from asyncio import Event, get_event_loop, sleep
 
 import pytest
 
@@ -43,15 +43,41 @@ async def test_create_task_skip_gc_until_done():
 
     persisted_tasks = _get_persisted_tasks()
 
-    assert len(persisted_tasks) == 0
+    before = set(persisted_tasks)
     task = create_task(sample_coroutine(), skip_gc_until_done=True)
-    assert len(persisted_tasks) == 1
+    (persisted,) = persisted_tasks - before
+    assert not persisted.done()
     result = await task
-    assert next(iter(persisted_tasks)).done()
-    # create some junk task to trigger the pruning of the persisted task set
-    create_task(sleep(0))
-    assert len(persisted_tasks) == 0
+    await persisted
+    # The callback removes this wrapper, independently of other cooperative tests.
+    await sleep(0)
+    assert persisted not in persisted_tasks
     assert result == "GC Test"
+
+
+@pytest.mark.asyncio_cooperative
+async def test_persisted_task_completion_preserves_other_pending_tasks():
+    release = Event()
+    persisted_tasks = _get_persisted_tasks()
+    before = set(persisted_tasks)
+    pending = create_task(release.wait(), skip_gc_until_done=True)
+    (pending_wrapper,) = persisted_tasks - before
+    try:
+        before_complete = set(persisted_tasks)
+        completed = create_task(sleep(0), skip_gc_until_done=True)
+        (completed_wrapper,) = persisted_tasks - before_complete
+        await completed
+        await completed_wrapper
+        await sleep(0)
+        assert completed_wrapper not in persisted_tasks
+        assert pending_wrapper in persisted_tasks
+        assert not pending_wrapper.done()
+    finally:
+        release.set()
+        await pending
+        await pending_wrapper
+        await sleep(0)
+    assert pending_wrapper not in persisted_tasks
 
 
 @pytest.mark.asyncio_cooperative

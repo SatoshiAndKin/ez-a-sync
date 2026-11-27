@@ -90,12 +90,12 @@ def test_proxy_and_future_attribute_typing(tmp_path: Path) -> None:
     )
     expected = Counter(
         [
-            '"builtins.int"',
-            '"builtins.str"',
-            '"builtins.int"',
-            '"builtins.str"',
-            '"builtins.int"',
-            '"builtins.str"',
+            '"int"',
+            '"str"',
+            '"int"',
+            '"str"',
+            '"int"',
+            '"str"',
         ]
     )
     assert _reveal_types(output) == expected
@@ -129,9 +129,9 @@ def test_proxy_and_future_missing_attribute_errors(tmp_path: Path) -> None:
     )
     expected = Counter(
         [
-            '"builtins.int"',
-            '"builtins.int"',
-            '"builtins.int"',
+            '"int"',
+            '"int"',
+            '"int"',
         ]
     )
     assert _reveal_types(output) == expected
@@ -156,7 +156,7 @@ def test_property_descriptor_typing(tmp_path: Path) -> None:
         reveal_type(Thing().value)
         """,
     )
-    expected = Counter(['"typing.Awaitable[builtins.int]"'])
+    expected = Counter(['"typing.Awaitable[int]"'])
     assert _reveal_types(output) == expected
 
 
@@ -182,7 +182,7 @@ def test_a_sync_decorator_default_resolution(tmp_path: Path) -> None:
         '"a_sync.a_sync.function.ASyncDecoratorSyncDefault"',
         '"a_sync.a_sync.function.ASyncDecoratorAsyncDefault"',
         '"a_sync.a_sync.function.ASyncDecorator"',
-        '"a_sync.a_sync.function.ASyncFunctionAsyncDefault[[value: builtins.int], builtins.int]"',
+        '"a_sync.a_sync.function.ASyncFunctionAsyncDefault[[value: int], int]"',
     ]
 
     # Keep env wiring covered for semantic runs that depend on process env.
@@ -200,14 +200,18 @@ def test_a_sync_decorator_default_resolution(tmp_path: Path) -> None:
     async_revealed = _revealed_sequence(async_output)
     assert sync_revealed[0] == '"a_sync.a_sync.function.ASyncDecoratorSyncDefault"'
     assert sync_revealed[1] == '"a_sync.a_sync.function.ASyncDecoratorAsyncDefault"'
-    assert sync_revealed[3] == '"a_sync.a_sync.function.ASyncFunctionAsyncDefault[[value: builtins.int], builtins.int]"'
+    assert (
+        sync_revealed[3] == '"a_sync.a_sync.function.ASyncFunctionAsyncDefault[[value: int], int]"'
+    )
     assert sync_revealed[2] in {
         '"a_sync.a_sync.function.ASyncDecorator"',
         '"a_sync.a_sync.function.ASyncDecoratorSyncDefault"',
     }
     assert async_revealed[0] == '"a_sync.a_sync.function.ASyncDecoratorSyncDefault"'
     assert async_revealed[1] == '"a_sync.a_sync.function.ASyncDecoratorAsyncDefault"'
-    assert async_revealed[3] == '"a_sync.a_sync.function.ASyncFunctionAsyncDefault[[value: builtins.int], builtins.int]"'
+    assert (
+        async_revealed[3] == '"a_sync.a_sync.function.ASyncFunctionAsyncDefault[[value: int], int]"'
+    )
     assert async_revealed[2] in {
         '"a_sync.a_sync.function.ASyncDecorator"',
         '"a_sync.a_sync.function.ASyncDecoratorAsyncDefault"',
